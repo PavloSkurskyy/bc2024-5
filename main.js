@@ -1,98 +1,75 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const bodyParser = require('body-parser');
+const path = require('path');
 
 const app = express();
+const port = 3000;
+const host = "localhost";
+
+// Система зберігання нотаток (тимчасова)
+let notes = {};
+
+// Middleware для обробки тіла запиту в форматі JSON
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-// Отримання параметра --cache з командного рядка
-const cacheDir = process.argv.find(arg => arg.startsWith('--cache='))
-    ?.split('=')[1] || './cache';
+// Статичні файли, наприклад, HTML, CSS, JavaScript
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Перевірка існування директорії кешу
-if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir);
-}
-
-// Маршрут для отримання тексту нотатки
-app.get('/notes/:name', (req, res) => {
-    const noteName = req.params.name;
-    const notePath = path.join(cacheDir, noteName);
-
-    if (!fs.existsSync(notePath)) {
-        return res.status(404).send('Not found');
+// 1. GET /notes/:noteName
+app.get('/notes/:noteName', (req, res) => {
+    const noteName = req.params.noteName;
+    if (notes[noteName]) {
+        res.status(200).send(notes[noteName]);
+    } else {
+        res.status(404).send('Not Found');
     }
-
-    const noteText = fs.readFileSync(notePath, 'utf-8');
-    res.status(200).send(noteText);
 });
 
-// Маршрут для оновлення тексту нотатки
-app.put('/notes/:name', (req, res) => {
-    const noteName = req.params.name;
-    const notePath = path.join(cacheDir, noteName);
-
-    if (!fs.existsSync(notePath)) {
-        return res.status(404).send('Not found');
+// 2. PUT /notes/:noteName
+app.put('/notes/:noteName', (req, res) => {
+    const noteName = req.params.noteName;
+    if (notes[noteName]) {
+        notes[noteName] = req.body.text;
+        res.status(200).send(notes[noteName]);
+    } else {
+        res.status(404).send('Not Found');
     }
-
-    const newText = req.body.text;
-    fs.writeFileSync(notePath, newText);
-    res.status(200).send('Note updated');
 });
 
-// Маршрут для видалення нотатки
-app.delete('/notes/:name', (req, res) => {
-    const noteName = req.params.name;
-    const notePath = path.join(cacheDir, noteName);
-
-    if (!fs.existsSync(notePath)) {
-        return res.status(404).send('Not found');
+// 3. DELETE /notes/:noteName
+app.delete('/notes/:noteName', (req, res) => {
+    const noteName = req.params.noteName;
+    if (notes[noteName]) {
+        delete notes[noteName];
+        res.status(200).send('Deleted');
+    } else {
+        res.status(404).send('Not Found');
     }
-
-    fs.unlinkSync(notePath);
-    res.status(200).send('Note deleted');
 });
 
-// Маршрут для отримання списку всіх нотаток
+// 4. GET /notes
 app.get('/notes', (req, res) => {
-    const files = fs.readdirSync(cacheDir);
-    const notes = files.map(file => {
-        const filePath = path.join(cacheDir, file);
-        const text = fs.readFileSync(filePath, 'utf-8');
-        return { name: file, text };
-    });
-
-    res.status(200).json(notes);
+    const notesList = Object.keys(notes).map(name => ({ name, text: notes[name] }));
+    res.status(200).json(notesList);
 });
 
-// Маршрут для створення нової нотатки
+// 5. POST /write
 app.post('/write', (req, res) => {
     const { note_name, note } = req.body;
-    const notePath = path.join(cacheDir, note_name);
-
-    if (fs.existsSync(notePath)) {
-        return res.status(400).send('Note already exists');
+    if (notes[note_name]) {
+        res.status(400).send('Bad Request');
+    } else {
+        notes[note_name] = note;
+        res.status(201).send('Created');
     }
-
-    fs.writeFileSync(notePath, note);
-    res.status(201).send('Note created');
 });
 
-// Маршрут для отримання HTML-форми
-app.get('/UploadForm.html', (req, res) => {
-    const formPath = path.join(__dirname, 'UploadForm.html');
-    res.sendFile(formPath);
+// 6. GET /UploadForm.html
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'UploadForm.html'));
 });
 
-// Запуск сервера
-const host = process.argv.find(arg => arg.startsWith('--host='))
-    ?.split('=')[1] || 'localhost';
-
-const port = process.argv.find(arg => arg.startsWith('--port='))
-    ?.split('=')[1] || 3000;
-
-app.listen(port, host, () => {
+app.listen(port, () => {
     console.log(`Server is running on http://${host}:${port}`);
 });
